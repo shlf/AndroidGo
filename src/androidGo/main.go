@@ -12,11 +12,12 @@ import (
 	"strings"
 )
 
-const APP_VERSION = "0.1"
+const APP_VERSION = "0.2"
 const CFG_NAME = "project.properties"
 const REFERENCE = "android.library.reference."
 const RELEASE_PUBLISH = "release"
 const DEBUG_PUBLISH = "debug"
+const TOOL_GIT = "git"
 
 const DEBUG = true
 
@@ -26,6 +27,8 @@ var checkFlag *bool = flag.Bool("c", false, "Check your environment.")
 var versionFlag *bool = flag.Bool("v", false, "Print the version number.")
 var buildPath *string = flag.String("p", "", "Input android project path.")
 var publishFlag *string = flag.String("publish", RELEASE_PUBLISH, "Output release or debug edition.")
+var tooleFlag *string = flag.String("tool", "", "Update project use Git(default) or other code store manager tools.")
+var projectPathFlag *string = flag.String("ppath", "", "Update project path.")
 
 var paths = new(linkedlist.LinkedList)
 
@@ -37,6 +40,8 @@ func Help() {
 	fmt.Println("       -v : Show command version number.")
 	fmt.Println("       -p : Input android project path.")
 	fmt.Println("       -publish : Choice release(default) or debug mode to publish.")
+	fmt.Println("       -tool : Update project use Git(default) or other code store manager tools.")
+	fmt.Println("       -ppath : Update project path.")
 	fmt.Println("------------------------")
 }
 
@@ -81,7 +86,7 @@ func checkEnv() bool {
 	return (javaResult && androidResult && antResult)
 }
 
-func RunAnt(command string) bool {
+func RunShell(command string) bool {
 	cmd := exec.Command("/bin/sh", "-c", command)
 	result, _err := cmd.Output()
 	if _err != nil {
@@ -90,7 +95,7 @@ func RunAnt(command string) bool {
 	}
 
 	if DEBUG {
-		fmt.Fprintf(os.Stdout, "----run Result: %s \n", result)
+		fmt.Fprintf(os.Stdout, "----run Result: %s (OK)\n", result)
 	}
 
 	return true
@@ -101,7 +106,7 @@ func Run(path string) bool {
 	// run clean project
 	cleanCmd := "cd " + path + " && ant clean"
 	fmt.Println("----cleanCmd :", cleanCmd)
-	if !RunAnt(cleanCmd) {
+	if !RunShell(cleanCmd) {
 		return false
 	}
 
@@ -129,7 +134,7 @@ func Run(path string) bool {
 	}
 	fmt.Println("----publishCmd :", publishCmd)
 
-	return RunAnt(publishCmd)
+	return RunShell(publishCmd)
 }
 
 // parse project.properties file in project
@@ -198,9 +203,41 @@ func ParseCfg(path string) {
 	}
 }
 
+func gitUpdate() bool {
+	updateCmd := "cd " + *projectPathFlag + " && git pull"
+	fmt.Println("----updateCmd :", updateCmd)
+	if RunShell(updateCmd) {
+		fmt.Println("Update code OK!")
+		return true
+	} else {
+		fmt.Println("Please check your environment.")
+		return false
+	}
+}
+
 func main() {
 	showCopyright()
 	flag.Parse() // Scan the arguments list
+
+	// hand code update logic
+	if *projectPathFlag != "" {
+		if *tooleFlag == "" {
+			fmt.Println("Please input your code manager tool, like git or svn or others.")
+			return
+		} else {
+			if *tooleFlag == TOOL_GIT {
+				gitUpdate()
+			} else {
+				fmt.Println("Sorry! Not support", *tooleFlag)
+			}
+		}
+		return
+	} else {
+		if *tooleFlag != "" {
+			fmt.Println("Please input tool name, like git or svn or others")
+			return
+		}
+	}
 
 	if *checkFlag {
 		if checkEnv() {
