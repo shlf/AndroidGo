@@ -16,7 +16,7 @@ const APP_VERSION = "0.1"
 const CFG_NAME = "project.properties"
 const REFERENCE = "android.library.reference."
 
-const DEBUG = false
+const DEBUG = true
 
 // The flag package provides a default help printer via -h switch
 var helpFlag *bool = flag.Bool("h", false, "Print the command help.")
@@ -222,7 +222,22 @@ func main() {
 			fmt.Println("----Android project path :", *buildPath)
 		}
 
-		ParseCfg(*buildPath)
+		// delete end last '/' char
+		rs := []rune(*buildPath)
+		rl := len(rs)
+		lastIndex := strings.LastIndex(*buildPath, "/")
+
+		var path string
+		if rl-1 == lastIndex {
+			path = string(rs[:strings.LastIndex(*buildPath, "/")])
+			if DEBUG {
+				fmt.Printf("----((((path:%s))))----\n", path)
+			}
+		} else {
+			path = *buildPath
+		}
+
+		ParseCfg(path)
 
 		// list paths to show
 		var counter int32 = 0
