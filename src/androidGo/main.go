@@ -77,43 +77,50 @@ func checkEnv() bool {
 	return (javaResult && androidResult && antResult)
 }
 
-func RunAnt(command string) {
+func RunAnt(command string) bool {
 	cmd := exec.Command("/bin/sh", "-c", command)
 	result, _err := cmd.Output()
 	if _err != nil {
-		if DEBUG {
-			fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: %s) \n", _err, command)
-		}
-		return
+		fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: %s) \n", _err, command)
+		return false
 	}
 
 	if DEBUG {
 		fmt.Fprintf(os.Stdout, "----run Result: %s \n", result)
 	}
+
+	return true
 }
 
 // update and build project
-func Run(path string) {
+func Run(path string) bool {
 	// update project.
 	updateCmd := exec.Command("android", "update", "project", "-p", path)
 	updateResult, updateErr := updateCmd.Output()
 	if updateErr != nil {
-		if DEBUG {
-			fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: android update project -p) \n", updateErr)
-		}
-		return
+		fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: android update project -p) \n", updateErr)
+		return false
 	}
-	fmt.Fprintf(os.Stdout, "----update Result: %s \n", updateResult)
+
+	if DEBUG {
+		fmt.Fprintf(os.Stdout, "----update Result: %s \n", updateResult)
+	}
 
 	// run clean project
 	cleanPath := "cd " + path + " && ant clean"
 	fmt.Println("----cleanPath:", cleanPath)
-	RunAnt(cleanPath)
+	if !RunAnt(cleanPath) {
+		return false
+	}
 
 	// run ant release to build apk or lib
 	releasePath := "cd " + path + " && ant release"
 	fmt.Println("----releasePath:", releasePath)
-	RunAnt(releasePath)
+	if !RunAnt(releasePath) {
+		return false
+	}
+
+	return true
 }
 
 // parse project.properties file in project
@@ -232,22 +239,32 @@ func main() {
 		fmt.Println("list count :", counter)
 
 		// build project and depend project.
+		var index int32 = 0
 		for {
 			if counter >= 0 {
 				counter--
+				index++
 				node, _err := paths.Get(counter)
+				fmt.Printf("------------start build [%d]------------\n", index)
 				if node != nil && _err == nil {
 					// find item
 					// convert item into string
 					node.Value = reflect.ValueOf(node.Value).String()
 					if str_v, ok := node.Value.(string); ok {
-						Run(str_v)
+						if Run(str_v) {
+							fmt.Printf("------------end build   [%d]------------\n", index)
+						} else {
+							fmt.Println("------------------------")
+							fmt.Println("OOOOOOO Over Failed : you have some problem.")
+							return
+						}
 					} else {
 						fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
 					}
 				}
 			} else {
-				fmt.Println("OOOOOOO Over :", counter)
+				fmt.Println("------------------------")
+				fmt.Println("OOOOOOO Over Success : Luck Dog!")
 				return
 			}
 		}
