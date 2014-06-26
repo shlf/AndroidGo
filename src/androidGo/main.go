@@ -103,13 +103,6 @@ func RunShell(command string) bool {
 
 // update and build project
 func Run(path string) bool {
-	// run clean project
-	cleanCmd := "cd " + path + " && ant clean"
-	fmt.Println("----cleanCmd :", cleanCmd)
-	if !RunShell(cleanCmd) {
-		return false
-	}
-
 	// update project.
 	rs := []rune(path)
 	projectName := string(rs[strings.LastIndex(path, "/")+1:])
@@ -120,9 +113,15 @@ func Run(path string) bool {
 		fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: android update project -p) \n", updateErr)
 		return false
 	}
-
 	if DEBUG {
 		fmt.Fprintf(os.Stdout, "----update Result: %s \n", updateResult)
+	}
+
+	// run clean project
+	cleanCmd := "cd " + path + " && ant clean"
+	fmt.Println("----cleanCmd :", cleanCmd)
+	if !RunShell(cleanCmd) {
+		return false
 	}
 
 	// run ant to build apk or lib
