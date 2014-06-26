@@ -15,6 +15,8 @@ import (
 const APP_VERSION = "0.1"
 const CFG_NAME = "project.properties"
 const REFERENCE = "android.library.reference."
+const RELEASE_PUBLISH = "release"
+const DEBUG_PUBLISH = "debug"
 
 const DEBUG = true
 
@@ -23,16 +25,18 @@ var helpFlag *bool = flag.Bool("h", false, "Print the command help.")
 var checkFlag *bool = flag.Bool("c", false, "Check your environment.")
 var versionFlag *bool = flag.Bool("v", false, "Print the version number.")
 var buildPath *string = flag.String("p", "", "Input android project path.")
+var publishFlag *string = flag.String("publish", RELEASE_PUBLISH, "Output release or debug edition.")
 
 var paths = new(linkedlist.LinkedList)
 
 func Help() {
 	fmt.Println("------------------------")
 	fmt.Println("Usage :")
-	fmt.Println("       -h : show command help tip.")
-	fmt.Println("       -c : check your environment.")
-	fmt.Println("       -v : show command version number.")
-	fmt.Println("       -p : input android project path.")
+	fmt.Println("       -h : Show command help tip.")
+	fmt.Println("       -c : Check your environment.")
+	fmt.Println("       -v : Show command version number.")
+	fmt.Println("       -p : Input android project path.")
+	fmt.Println("       -publish : Choice release(default) or debug mode to publish.")
 	fmt.Println("------------------------")
 }
 
@@ -95,9 +99,9 @@ func RunAnt(command string) bool {
 // update and build project
 func Run(path string) bool {
 	// run clean project
-	cleanPath := "cd " + path + " && ant clean"
-	fmt.Println("----cleanPath:", cleanPath)
-	if !RunAnt(cleanPath) {
+	cleanCmd := "cd " + path + " && ant clean"
+	fmt.Println("----cleanCmd :", cleanCmd)
+	if !RunAnt(cleanCmd) {
 		return false
 	}
 
@@ -116,14 +120,16 @@ func Run(path string) bool {
 		fmt.Fprintf(os.Stdout, "----update Result: %s \n", updateResult)
 	}
 
-	// run ant release to build apk or lib
-	releasePath := "cd " + path + " && ant release"
-	fmt.Println("----releasePath:", releasePath)
-	if !RunAnt(releasePath) {
-		return false
+	// run ant to build apk or lib
+	var publishCmd string
+	if *publishFlag == RELEASE_PUBLISH {
+		publishCmd = "cd " + path + " && ant release"
+	} else if *publishFlag == DEBUG_PUBLISH {
+		publishCmd = "cd " + path + " && ant debug"
 	}
+	fmt.Println("----publishCmd :", publishCmd)
 
-	return true
+	return RunAnt(publishCmd)
 }
 
 // parse project.properties file in project
@@ -237,6 +243,7 @@ func main() {
 			path = *buildPath
 		}
 
+		// parse project.properties and to check depends.
 		ParseCfg(path)
 
 		// list paths to show
@@ -256,6 +263,7 @@ func main() {
 		paths.Map(to_s)
 		fmt.Println("list count :", counter)
 
+		counterTmp := counter
 		// build project and depend project.
 		var index int32 = 0
 		for {
@@ -263,17 +271,18 @@ func main() {
 				counter--
 				index++
 				node, _err := paths.Get(counter)
-				fmt.Printf("------------start build [%d]------------\n", index)
+				if index <= counterTmp {
+					fmt.Printf("------------start build [%d]------------\n", index)
+				}
+
 				if node != nil && _err == nil {
 					// find item
 					// convert item into string
 					node.Value = reflect.ValueOf(node.Value).String()
 					if str_v, ok := node.Value.(string); ok {
-						if Run(str_v) {
-							fmt.Printf("------------end build   [%d]------------\n", index)
-						} else {
+						if !Run(str_v) {
 							fmt.Println("------------------------")
-							fmt.Println("OOOOOOO Over Failed : you have some problem.")
+							fmt.Println("<<< Over, Failed : you have some problem >>>")
 							return
 						}
 					} else {
@@ -282,7 +291,7 @@ func main() {
 				}
 			} else {
 				fmt.Println("------------------------")
-				fmt.Println("OOOOOOO Over Success : Luck Dog!")
+				fmt.Println("<<< Over, Success : Luck Dog! >>>")
 				return
 			}
 		}
