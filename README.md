@@ -12,15 +12,15 @@ Android工程的自动化编译脚本工具------androidGo
 
 帮助：<br>
  ------------------------
- Usage :
-       -h : Show command help tip.
-       -c : Check your environment.
-       -v : Show command version number.
-       -p : Input android project path.
-       -publish : Choice release(default) or debug mode to publish.
-       -tool    : Update project use Git(default) or other code store manager tools.
+ Usage :<br>
+       -h : Show command help tip.<br>
+       -c : Check your environment.<br>
+       -v : Show command version number.<br>
+       -p : Input android project path.<br>
+       -publish : Choice release(default) or debug mode to publish.<br>
+       -tool    : Update project use Git(default) or other code store manager tools.<br>
        -ppath   : Update project path.
  ------------------------
- -tool和-ppath一起使用，用于从仓库中更新代码;
- -tool可以指定Git(暂时只支持Git)、svn、hg等
+ -tool和-ppath一起使用，用于从仓库中更新代码;<br>
+ -tool可以指定Git(暂时只支持Git)、svn、hg等<br>
  -ppath用于指定仓库目录
