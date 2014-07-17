@@ -31,6 +31,7 @@ var tooleFlag *string = flag.String("tool", "", "Update project use Git(default)
 var projectPathFlag *string = flag.String("ppath", "", "Update project path.")
 
 var paths = new(linkedlist.LinkedList)
+var runtineLib = make(map[bool]string)
 
 func Help() {
     fmt.Println("------------------------")
@@ -157,8 +158,30 @@ func ParseCfg(path string) {
     }
 
     if DEBUG {
-        fmt.Println("----%v", cfgmap)
+        fmt.Println("----map =", cfgmap)
     }
+
+    //================================
+    isNoDependLibrary := false
+    for key, value := range cfgmap {
+        if strings.Contains(key, REFERENCE) {
+            isNoDependLibrary = false
+        }
+        
+        if strings.Contains(key, "android.library") {
+            if value == "true" {
+                isNoDependLibrary = true
+            }
+        }
+    }
+    if DEBUG {
+        fmt.Println("----isNoDependLibrary =", isNoDependLibrary)
+    }
+
+    if isNoDependLibrary {
+        runtineLib[isNoDependLibrary] = path
+    }
+    //================================
 
     for key, value := range cfgmap {
         if strings.Contains(key, REFERENCE) {
@@ -281,6 +304,16 @@ func main() {
 
         // parse project.properties and to check depends.
         ParseCfg(path)
+
+        // go runtineLib
+        NCPU := runtime.NumCPU()
+        fmt.Println("MMMMMMMM CPU Number =", NCPU)
+        runtime.GOMAXPROCS(NCPU)
+        //ch := make(chan int, NCPU)
+        for _, value := range runtineLib {
+            fmt.Println("<<< runtine Path : " + value + " >>>")
+            // go 
+        }
 
         // list paths to show
         var counter int32 = 0
