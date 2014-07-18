@@ -33,7 +33,7 @@ Android工程的自动化编译脚本工具------androidGo<br>
  现对比如下（编译相同的Android工程）:
  <table>
     <tr>
-        <td>Tool</td><td>CPU Number</td><td>Dispend Time</td>
+        <td>Tool</td><td>CPU Number</td><td>Dispend Time(Unit:ns)</td>
     </tr>
     <tr>
         <td>androidGo-sip</td><td>1</td><td>175881123215</td>
@@ -49,5 +49,6 @@ Android工程的自动化编译脚本工具------androidGo<br>
     </tr>
 </table>
 从表格可以看出，在机器配置相同、工程一样的情况下，具有多核并行能力的编译工具更加节省时间<br>
-尤其在多核环境下的表现能力，尤为突出。
+尤其在多核环境下的表现能力，尤为突出。<br>
+我的工程较大，但是在这种情况下，优化后在4核上消耗近1分钟，没优化单核上消耗接近3分钟，时间差不多压缩近1/3
 
