@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"reflect"
 	"strings"
+	"time"
 )
 
 const APP_VERSION = "0.2"
@@ -214,6 +215,7 @@ func gitUpdate() bool {
 	}
 }
 
+var startTime time.Time
 func main() {
 	showCopyright()
 	flag.Parse() // Scan the arguments list
@@ -298,7 +300,8 @@ func main() {
 		}
 		paths.Map(to_s)
 		fmt.Println("list count :", counter)
-
+		
+		startTime := time.Now()
 		counterTmp := counter
 		// build project and depend project.
 		var index int32 = 0
@@ -317,7 +320,9 @@ func main() {
 					node.Value = reflect.ValueOf(node.Value).String()
 					if str_v, ok := node.Value.(string); ok {
 						if !Run(str_v) {
-							fmt.Println("------------------------")
+							endTime := time.Now()
+                    		fmt.Println("------------------------")
+                    		fmt.Printf("Expend Time(%d)\n", endTime.Sub(startTime))
 							fmt.Println("<<< Over, Failed : you have some problem >>>")
 							return
 						}
@@ -326,7 +331,9 @@ func main() {
 					}
 				}
 			} else {
-				fmt.Println("------------------------")
+				endTime := time.Now()
+                fmt.Println("------------------------")
+                fmt.Printf("Expend Time(%d)\n", endTime.Sub(startTime))
 				fmt.Println("<<< Over, Success : Luck Dog! >>>")
 				return
 			}
