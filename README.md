@@ -22,7 +22,7 @@ Android工程的自动化编译脚本工具------androidGo<br>
  -tool可以指定Git(暂时只支持Git)、svn、hg等<br>
  -ppath用于指定仓库目录
  
- ##测试##
+ ##测试：##
  1.Master分支:顺序执行编译 
  >Tool name : androidGo-sip
  
