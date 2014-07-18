@@ -10,6 +10,8 @@ import (
     "os/exec"
     "reflect"
     "strings"
+    "runtime"
+    "time"
 )
 
 const APP_VERSION = "0.2"
@@ -19,7 +21,7 @@ const RELEASE_PUBLISH = "release"
 const DEBUG_PUBLISH = "debug"
 const TOOL_GIT = "git"
 
-const DEBUG = true
+const DEBUG = false
 
 // The flag package provides a default help printer via -h switch
 var helpFlag *bool = flag.Bool("h", false, "Print the command help.")
@@ -31,7 +33,7 @@ var tooleFlag *string = flag.String("tool", "", "Update project use Git(default)
 var projectPathFlag *string = flag.String("ppath", "", "Update project path.")
 
 var paths = new(linkedlist.LinkedList)
-var runtineLib = make(map[bool]string)
+var runtineLib = make(map[string]string)
 
 func Help() {
     fmt.Println("------------------------")
@@ -107,7 +109,7 @@ func Run(path string) bool {
     // update project.
     rs := []rune(path)
     projectName := string(rs[strings.LastIndex(path, "/")+1:])
-    fmt.Printf("----((((projectName:%s))))", projectName)
+    fmt.Printf("----((((projectName:%s))))\n", projectName)
     updateCmd := exec.Command("android", "update", "project", "-p", path, "-n", projectName)
     updateResult, updateErr := updateCmd.Output()
     if updateErr != nil {
@@ -137,6 +139,14 @@ func Run(path string) bool {
     return RunShell(publishCmd)
 }
 
+func rungoBuild(path string, ch chan int) {
+    if Run(path) {
+        ch <- 1
+    } else {
+        ch <- 0
+    }
+}
+
 // parse project.properties file in project
 func ParseCfg(path string) {
     if DEBUG {
@@ -147,7 +157,20 @@ func ParseCfg(path string) {
     if ok {
         paths.Remove(path)
     }
-    paths.Append(path)
+
+    exitsRun := false
+    for _, value := range runtineLib {
+        if value == path {
+            exitsRun = true
+            break
+        }
+    }
+    
+    if exitsRun {
+        paths.Remove(path)
+    } else {
+        paths.Append(path)
+    }
 
     cfgPath := path + "/" + CFG_NAME
 
@@ -179,7 +202,7 @@ func ParseCfg(path string) {
     }
 
     if isNoDependLibrary {
-        runtineLib[isNoDependLibrary] = path
+        runtineLib[path] = path
     }
     //================================
 
@@ -237,6 +260,7 @@ func gitUpdate() bool {
     }
 }
 
+var startTime time.Time
 func main() {
     showCopyright()
     flag.Parse() // Scan the arguments list
@@ -278,7 +302,7 @@ func main() {
     }
 
     if *helpFlag {
-        Help()
+        goto HELP
         return
     }
 
@@ -305,66 +329,93 @@ func main() {
         // parse project.properties and to check depends.
         ParseCfg(path)
 
+        startTime = time.Now()
         // go runtineLib
         NCPU := runtime.NumCPU()
         fmt.Println("MMMMMMMM CPU Number =", NCPU)
         runtime.GOMAXPROCS(NCPU)
-        //ch := make(chan int, NCPU)
+        ch := make(chan int, NCPU)
+
+        goCount := 0
         for _, value := range runtineLib {
-            fmt.Println("<<< runtine Path : " + value + " >>>")
-            // go 
+            goCount++
+            fmt.Println("<<< runtime Path : " + value + " >>>count:", goCount)
+            go rungoBuild(value, ch)
         }
 
-        // list paths to show
-        var counter int32 = 0
-        to_s := func(node *linkedlist.Node) {
-            // convert item into string
-            node.Value = reflect.ValueOf(node.Value).String()
-            if str_v, ok := node.Value.(string); ok {
-                if DEBUG {
-                    fmt.Println("<<< node.Value : " + str_v + " >>>")
-                }
-                counter++
-            } else {
-                fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
-            }
+        result := 0
+        for i := 0; i < goCount; i++ {
+            temp := <-ch
+            fmt.Println("flag :", temp)
+            result += temp
         }
-        paths.Map(to_s)
-        fmt.Println("list count :", counter)
+        fmt.Println("flag count :", result, "(not sum)")
 
-        counterTmp := counter
-        // build project and depend project.
-        var index int32 = 0
-        for {
-            if counter >= 0 {
-                counter--
-                index++
-                node, _err := paths.Get(counter)
-                if index <= counterTmp {
-                    fmt.Printf("------------start build [%d]------------\n", index)
-                }
-
-                if node != nil && _err == nil {
-                    // find item
-                    // convert item into string
-                    node.Value = reflect.ValueOf(node.Value).String()
-                    if str_v, ok := node.Value.(string); ok {
-                        if !Run(str_v) {
-                            fmt.Println("------------------------")
-                            fmt.Println("<<< Over, Failed : you have some problem >>>")
-                            return
-                        }
-                    } else {
-                        fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
+        if result == goCount {
+            // list paths to show
+            var counter int32 = 0
+            to_s := func(node *linkedlist.Node) {
+                // convert item into string
+                node.Value = reflect.ValueOf(node.Value).String()
+                if str_v, ok := node.Value.(string); ok {
+                    if DEBUG {
+                        fmt.Println("<<< one by one to build : " + str_v + " >>>")
                     }
+                    counter++
+                } else {
+                    fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
                 }
-            } else {
-                fmt.Println("------------------------")
-                fmt.Println("<<< Over, Success : Luck Dog! >>>")
-                return
             }
+            paths.Map(to_s)
+            fmt.Println("one by one to build list count :", counter)
+
+            counterTmp := counter
+            // build project and depend project.
+            var index int32 = 0
+            for {
+                if counter >= 0 {
+                    counter--
+                    index++
+                    node, _err := paths.Get(counter)
+                    if index <= counterTmp {
+                        fmt.Printf("------------start build [%d]------------\n", index)
+                    }
+
+                    if node != nil && _err == nil {
+                        // find item
+                        // convert item into string
+                        node.Value = reflect.ValueOf(node.Value).String()
+                        if str_v, ok := node.Value.(string); ok {
+                            fmt.Println("----------path =", str_v)
+                            if !Run(str_v) {
+                                goto FAILED
+                                return
+                            }
+                        } else {
+                            fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
+                        }
+                    }
+                } else {
+                    endTime := time.Now()
+                    fmt.Println("------------------------")
+                    fmt.Printf("Expend Time(%d)\n", endTime.Sub(startTime))
+                    fmt.Println("<<< Over, Success : Luck Dog! >>>")
+                    return
+                }
+            }
+        } else {
+            goto FAILED
         }
     } else {
-        Help()
+        goto HELP
     }
+
+    HELP:
+        Help()
+
+    FAILED:
+        endTime := time.Now()
+        fmt.Println("------------------------")
+        fmt.Printf("-----Expend Time(%d)------\n", endTime.Sub(startTime))
+        fmt.Println("<<< Over, Failed : you have some problem >>>")
 }
