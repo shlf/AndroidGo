@@ -6,11 +6,12 @@ import (
     "fmt"
     "linkedlist"
     "log"
+    "originbuild"
     "os"
     "os/exec"
     "reflect"
-    "strings"
     "runtime"
+    "strings"
     "time"
 )
 
@@ -28,12 +29,13 @@ var helpFlag *bool = flag.Bool("h", false, "Print the command help.")
 var checkFlag *bool = flag.Bool("c", false, "Check your environment.")
 var versionFlag *bool = flag.Bool("v", false, "Print the version number.")
 var buildPath *string = flag.String("p", "", "Input android project path.")
+var sdkPath *string = flag.String("sdk", "", "Android SDK path.")
 var publishFlag *string = flag.String("publish", RELEASE_PUBLISH, "Output release or debug edition.")
 var tooleFlag *string = flag.String("tool", "", "Update project use Git(default) or other code store manager tools.")
 var projectPathFlag *string = flag.String("ppath", "", "Update project path.")
 
 var paths = new(linkedlist.LinkedList)
-var runtineLib = make(map[string]string)
+var runtineLib = make(map[string]*originbuild.Apk)
 
 func Help() {
     fmt.Println("------------------------")
@@ -156,93 +158,100 @@ func ParseCfg(path string) {
     _, ok := paths.Find(path)
     if ok {
         paths.Remove(path)
-    }
-
-    exitsRun := false
-    for _, value := range runtineLib {
-        if value == path {
-            exitsRun = true
-            break
-        }
-    }
-    
-    if exitsRun {
-        paths.Remove(path)
     } else {
         paths.Append(path)
-    }
 
-    cfgPath := path + "/" + CFG_NAME
+        cfgPath := path + "/" + CFG_NAME
 
-    cfgmap := make(map[string]string)
-    err := cfg.Load(cfgPath, cfgmap)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    if DEBUG {
-        fmt.Println("----map =", cfgmap)
-    }
-
-    //================================
-    isNoDependLibrary := false
-    for key, value := range cfgmap {
-        if strings.Contains(key, REFERENCE) {
-            isNoDependLibrary = false
+        cfgmap := make(map[string]string)
+        err := cfg.Load(cfgPath, cfgmap)
+        if err != nil {
+            log.Fatal(err)
         }
-        
-        if strings.Contains(key, "android.library") {
-            if value == "true" {
-                isNoDependLibrary = true
-            }
+
+        if DEBUG {
+            fmt.Println("----map =", cfgmap)
         }
-    }
-    if DEBUG {
-        fmt.Println("----isNoDependLibrary =", isNoDependLibrary)
-    }
 
-    if isNoDependLibrary {
-        runtineLib[path] = path
-    }
-    //================================
+        //================================
+        thisApk := new(originbuild.Apk)
+        thisApk.Path = path
 
-    for key, value := range cfgmap {
-        if strings.Contains(key, REFERENCE) {
-            var dependProjectPath string = ""
+        rs := []rune(path)
+        projectName := string(rs[strings.LastIndex(path, "/")+1:])
+        thisApk.ProjectName = projectName
 
-            count := strings.Count(value, "../")
-            if count > 0 {
-                // hand depend project path
-                pathPice := strings.Split(path, "/")
-                endIndex := len(pathPice) - count
-                newPath := pathPice[:endIndex]
-
-                var rootPath string
-                for _, vpath := range newPath {
-                    rootPath += vpath + "/"
-                }
-                if DEBUG {
-                    fmt.Println("----rootPath =", rootPath)
-                }
-
-                endDir := strings.Trim(value, "../")
-                if DEBUG {
-                    fmt.Println("----endDir =", endDir)
-                }
-
-                dependProjectPath = rootPath + endDir
-            } else {
-                if strings.Index(value, "/") == 0 {
-                    dependProjectPath = value
+        for key, value := range cfgmap {
+            if strings.Contains(key, "android.library") {
+                if value == "true" {
+                    thisApk.IsRealLibrary = true
                 } else {
-                    dependProjectPath = path + "/" + value
+                    thisApk.IsRealLibrary = false
                 }
             }
 
-            if dependProjectPath != "" {
-                fmt.Println("---->> dependProjectPath =", dependProjectPath)
-                // check depend project depend
-                ParseCfg(dependProjectPath)
+            if strings.Contains(key, REFERENCE) {
+                thisApk.IsRealLibrary = false
+            }
+
+            if strings.Contains(key, "target") {
+                thisApk.Api = value
+            }
+
+            if strings.Contains(key, "key.store") {
+                thisApk.Keystore = value
+            }
+            if strings.Contains(key, "key.alias") {
+                thisApk.Keyalias = value
+            }
+            if strings.Contains(key, "key.store.password") {
+                thisApk.Kstorepass = value
+            }
+            if strings.Contains(key, "key.alias.password") {
+                thisApk.Keypass = value
+            }
+        }
+        runtineLib[path] = thisApk
+        //================================
+
+        for key, value := range cfgmap {
+            if strings.Contains(key, REFERENCE) {
+                var dependProjectPath string = ""
+
+                count := strings.Count(value, "../")
+                if count > 0 {
+                    // hand depend project path
+                    pathPice := strings.Split(path, "/")
+                    endIndex := len(pathPice) - count
+                    newPath := pathPice[:endIndex]
+
+                    var rootPath string
+                    for _, vpath := range newPath {
+                        rootPath += vpath + "/"
+                    }
+                    if DEBUG {
+                        fmt.Println("----rootPath =", rootPath)
+                    }
+
+                    endDir := strings.Trim(value, "../")
+                    if DEBUG {
+                        fmt.Println("----endDir =", endDir)
+                    }
+
+                    dependProjectPath = rootPath + endDir
+                } else {
+                    if strings.Index(value, "/") == 0 {
+                        dependProjectPath = value
+                    } else {
+                        dependProjectPath = path + "/" + value
+                    }
+                }
+
+                if dependProjectPath != "" {
+                    fmt.Println("---->> dependProjectPath =", dependProjectPath)
+                    // check depend project depend
+                    ParseCfg(dependProjectPath)
+                }
             }
         }
     }
@@ -261,9 +270,13 @@ func gitUpdate() bool {
 }
 
 var startTime time.Time
+
 func main() {
     showCopyright()
     flag.Parse() // Scan the arguments list
+
+    // get android sdk path.
+    sdkpath := *sdkPath
 
     // hand code update logic
     if *projectPathFlag != "" {
@@ -328,19 +341,29 @@ func main() {
 
         // parse project.properties and to check depends.
         ParseCfg(path)
-
         startTime = time.Now()
+
         // go runtineLib
         NCPU := runtime.NumCPU()
         fmt.Println("MMMMMMMM CPU Number =", NCPU)
         runtime.GOMAXPROCS(NCPU)
         ch := make(chan int, NCPU)
 
+        // built R.class
         goCount := 0
         for _, value := range runtineLib {
             goCount++
-            fmt.Println("<<< runtime Path : " + value + " >>>count:", goCount)
-            go rungoBuild(value, ch)
+            fmt.Println("<<< runtime Path : "+value.Path+" >>>count:", goCount)
+            fmt.Println("<<< runtime ProjectName : " + value.ProjectName)
+            fmt.Println("<<< runtime Api : " + value.Api)
+            fmt.Println("<<< runtime IsRealLibrary :", value.IsRealLibrary)
+
+            fmt.Println("<<< runtime Keystore : " + value.Keystore)
+            fmt.Println("<<< runtime Keyalias : " + value.Keyalias)
+            fmt.Println("<<< runtime Kstorepass : " + value.Kstorepass)
+            fmt.Println("<<< runtime Keypass : " + value.Keypass)
+
+            go originbuild.RunRClass(value, sdkpath, ch)
         }
 
         result := 0
@@ -349,26 +372,29 @@ func main() {
             fmt.Println("flag :", temp)
             result += temp
         }
-        fmt.Println("flag count :", result, "(not sum)")
-
+        fmt.Println("flag count :", result, "(goruntime count)")
         if result == goCount {
-            // list paths to show
-            var counter int32 = 0
-            to_s := func(node *linkedlist.Node) {
-                // convert item into string
-                node.Value = reflect.ValueOf(node.Value).String()
-                if str_v, ok := node.Value.(string); ok {
-                    if DEBUG {
-                        fmt.Println("<<< one by one to build : " + str_v + " >>>")
-                    }
-                    counter++
-                } else {
-                    fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
-                }
-            }
-            paths.Map(to_s)
-            fmt.Println("one by one to build list count :", counter)
 
+        }
+
+        // list paths to show
+        var counter int32 = 0
+        to_s := func(node *linkedlist.Node) {
+            // convert item into string
+            node.Value = reflect.ValueOf(node.Value).String()
+            if str_v, ok := node.Value.(string); ok {
+                if DEBUG {
+                    fmt.Println("<<< one by one to build : " + str_v + " >>>")
+                }
+                counter++
+            } else {
+                fmt.Errorf("can't convert to strings %s, result %s", str_v, ok)
+            }
+        }
+        paths.Map(to_s)
+        fmt.Println("one by one to build list count :", counter)
+
+        /*
             counterTmp := counter
             // build project and depend project.
             var index int32 = 0
@@ -403,19 +429,19 @@ func main() {
                     return
                 }
             }
-        } else {
+        } else */{
             goto FAILED
         }
     } else {
         goto HELP
     }
 
-    HELP:
-        Help()
+HELP:
+    Help()
 
-    FAILED:
-        endTime := time.Now()
-        fmt.Println("------------------------")
-        fmt.Printf("-----Expend Time(%d)------\n", endTime.Sub(startTime))
-        fmt.Println("<<< Over, Failed : you have some problem >>>")
+FAILED:
+    endTime := time.Now()
+    fmt.Println("------------------------")
+    fmt.Printf("-----Expend Time(%d)------\n", endTime.Sub(startTime))
+    fmt.Println("<<< Over, Failed : you have some problem >>>")
 }
