@@ -4,6 +4,8 @@ import (
     "fmt"
     "os"
     "os/exec"
+    "path/filepath"
+    "strings"
 )
 
 const DEBUG = true
@@ -32,137 +34,243 @@ type Apk struct {
     Keypass    string
 }
 
-func CheckPath(path string) bool {
-    dir, err := os.Stat(path)
-    if err == nil {
-        if dir.IsDir() {
-            return true
+func RunShell(command string) bool {
+    cmd := exec.Command("/bin/sh", "-c", command)
+    result, _err := cmd.Output()
+    if _err != nil {
+        fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: %s) \n", _err, command)
+        return false
+    }
+
+    if DEBUG {
+        fmt.Fprintf(os.Stdout, "----run Result: %s (OK)\n", result)
+    }
+
+    return true
+}
+
+func RunCommand(args []string) (bool, error) {
+    rCmd := &exec.Cmd{
+        Path: args[0],
+        Args: args,
+    }
+    if filepath.Base(args[0]) == args[0] {
+        if lp, err := exec.LookPath(args[0]); err != nil {
+            //rCmd.lookPathErr = err
+        } else {
+            rCmd.Path = lp
         }
     }
 
-    return false
+    rResult, rErr := rCmd.Output()
+
+    if DEBUG {
+        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
+        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
+    }
+
+    if rErr == nil {
+        return true, nil
+    } else {
+        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
+        return false, rErr
+    }
 }
 
-// R.class
-func RunRClass(apk *Apk, sdkPath string, ch chan int) {
+// R.java
+func RunRClass(apk *Apk, sdkPath string) bool {
+    //check gen dir
     genPath := apk.Path + "/gen"
     if !CheckPath(genPath) {
         os.Mkdir(genPath, os.FileMode(0777))
     }
 
-    rCmd := exec.Command("aapt", "package", "-f", "-m", "-M", apk.Path+"/AndroidManifest.xml", "-J", genPath, "-S", apk.Path+"/res", "-I", sdkPath+"/platforms/"+apk.Api+"/android.jar")
-    rResult, rErr := rCmd.Output()
+    args := []string{}
+    args = append(args, "aapt")
+    args = append(args, "package")
+    args = append(args, "-f")
+    args = append(args, "-m")
+    args = append(args, "-M")
+    args = append(args, apk.Path+"/AndroidManifest.xml")
+    args = append(args, "-J")
+    args = append(args, genPath)
+    args = append(args, "-S")
+    args = append(args, apk.Path+"/res")
+    args = append(args, "-I")
+    args = append(args, sdkPath+"/platforms/"+apk.Api+"/android.jar")
 
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
-        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
-    }
-
-    if rErr == nil {
-        ch <- 1
+    if result, _ := RunCommand(args); result {
+        fmt.Println("Built R.java success.")
+        return true
     } else {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
-        ch <- 0
+        fmt.Println("Built R.java failed.")
+        return false
     }
 }
 
 // AIDI
-func RunAIDL(path string) {
-    // TODO nothing
+func RunAIDL(apk *Apk, sdkPath string) bool {
+    //check gen dir
+    genPath := apk.Path + "/gen"
+    if !CheckPath(genPath) {
+        os.Mkdir(genPath, os.FileMode(0777))
+    }
+
+    aidlFiles := GetFilesPath(apk.Path, REGULAR_AIDL)
+    files := len(aidlFiles)
+    if len(aidlFiles) > 0 {
+        name := "aidl"
+
+        counter := 0
+        for _, value := range aidlFiles {
+            args := []string{}
+            args = append(args, name)
+            args = append(args, "-I"+apk.Path+"/src")
+            args = append(args, "-p"+sdkPath+"/platforms/"+apk.Api+"/framework.aidl")
+            args = append(args, "-o"+genPath)
+            args = append(args, value)
+
+            if result, _ := RunCommand(args); result {
+                fmt.Fprintf(os.Stderr, "The %s file built java success\n", value)
+                counter++
+            } else {
+                fmt.Fprintf(os.Stderr, "The %s file built java failed\n", value)
+            }
+        }
+        if counter == files {
+            fmt.Println("Built AIDL success.")
+            return true
+        } else {
+            fmt.Println("Built AIDL failed.")
+            return false
+        }
+    } else {
+        fmt.Fprintf(os.Stdout, "----project: %s not contain aidl\n", apk.ProjectName)
+        return true
+    }
 }
 
 // classes
-func RunClass(apk *Apk, sdkPath string, ch chan int) {
-    //    command := "javac -encoding GB18030 -target 1.6" +
-    //        " -bootclasspath " + "/platforms/android-10/android.jar" +
-    //        " -d " + path + "/bin" + " " +
-    //        "/HelloAndroid3/src/com/******/HelloAndroid3/HelloAndroid3.java" + " " +
-    //        "/HelloAndroid3/gen/com/******/HelloAndroid3/R.java"
-
-    rCmd := exec.Command("javac", "-encoding", "GB18030", "-target", "1.6", "-bootclasspath", sdkPath+"/platforms/"+apk.Api+"/android.jar", "-d", apk.Path+"/bin")
-    rResult, rErr := rCmd.Output()
-
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
-        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
+func RunClass(apk *Apk, sdkPath string) bool {
+    binPath := apk.Path + "/bin/classes"
+    if !CheckPath(binPath) {
+        os.MkdirAll(binPath, os.FileMode(0777))
     }
 
-    if rErr == nil {
-        ch <- 1
+    javaFiles := GetFilesPath(apk.Path, REGULAR_JAVA)
+
+    args := []string{}
+    args = append(args, "javac")
+    args = append(args, "-encoding")
+    args = append(args, "GB18030")
+    args = append(args, "-target")
+    args = append(args, "1.6")
+    args = append(args, "-bootclasspath")
+    args = append(args, sdkPath+"/platforms/"+apk.Api+"/android.jar")
+    args = append(args, "-d")
+    args = append(args, binPath)
+
+    for _, value := range javaFiles {
+        args = append(args, value)
+    }
+
+    if result, _ := RunCommand(args); result {
+        fmt.Println("Built all classes success.")
+        return true
     } else {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
-        ch <- 0
+        fmt.Println("Built all classes failed.")
+        return false
     }
 }
 
 // DEX
-func RunDEX(path string, ch chan int) {
-    //    command := "dx --dex" +
-    //        " --output=" + path + "/bin/classes.dex" + " " +
-    //        path + "/bin/"
+func RunDEX(path string) bool {
+    args := []string{}
+    args = append(args, "dx")
+    args = append(args, "--dex")
+    args = append(args, "--output="+path+"/bin/classes.dex")
+    args = append(args, path+"/bin/classes")
 
-    rCmd := exec.Command("dx", "--dex", "--output="+path+"/bin/classes.dex", path+"/bin/")
-    rResult, rErr := rCmd.Output()
-
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
-        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
-    }
-
-    if rErr == nil {
-        ch <- 1
+    if result, _ := RunCommand(args); result {
+        fmt.Println("Built DEX success.")
+        return true
     } else {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
-        ch <- 0
+        fmt.Println("Built DEX failed.")
+        return false
     }
 }
 
 // Resource
-func RunResource(path, api, sdkPath string, ch chan int) {
-    //    command := "aapt package -f" +
-    //        " -M " + path + "/AndroidManifest.xml" +
-    //        " -S " + path + "/res" +
-    //        " -A " + path + "/assets" +
-    //        " -I " + "platforms/android-10/android.jar" +
-    //        " -F " + path + "/bin/resources.ap_"
-
-    rCmd := exec.Command("aapt", "package", "-f", "-M", path+"/AndroidManifest.xml", "-S", path+"/res", "-A", path+"/assets", "-I", sdkPath+"/platforms/"+api+"/android.jar", "-F", path+"/bin/resources.ap_")
-    rResult, rErr := rCmd.Output()
-
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
-        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
+func RunResource(path, api, sdkPath string) bool {
+    assetsPath := path + "/assets"
+    if !CheckPath(assetsPath) {
+        os.Mkdir(assetsPath, os.FileMode(0777))
     }
 
-    if rErr == nil {
-        ch <- 1
+    args := []string{}
+    args = append(args, "aapt")
+    args = append(args, "package")
+    args = append(args, "-f")
+    args = append(args, "-M")
+    args = append(args, path+"/AndroidManifest.xml")
+    args = append(args, "-S")
+    args = append(args, path+"/res")
+    args = append(args, "-A")
+    args = append(args, assetsPath)
+    args = append(args, "-I")
+    args = append(args, sdkPath+"/platforms/"+api+"/android.jar")
+    args = append(args, "-F")
+    args = append(args, path+"/bin/resources.ap_")
+
+    if result, _ := RunCommand(args); result {
+        fmt.Println("Built Resource success.")
+        return true
     } else {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
-        ch <- 0
+        fmt.Println("Built Resource failed.")
+        return false
     }
 }
 
-// unsign apk
-func RunUnsignAPK(path, projectName string, ch chan int) {
-    //    command := "apkbuilder " + path + "/bin/HelloAndroid3.apk" +
-    //        " -v -u -z " + path + "/bin/resources.ap_" +
-    //        " -f " + path + "/bin/classes.dex" +
-    //        " -rf " + path + "/src"
+// unsigner apk
+func RunUnsignAPK(path, projectName, sdkPath string) bool {
+    args := []string{}
+    args = append(args, "apkbuilder")
+    args = append(args, path+"/bin/"+projectName+"-unsigner.apk")
+    args = append(args, "-v")
+    args = append(args, "-u")
+    args = append(args, "-z")
+    args = append(args, path+"/bin/resources.ap_")
+    args = append(args, "-f")
+    args = append(args, path+"/bin/classes.dex")
+    args = append(args, "-rf")
+    args = append(args, path+"/src")
 
-    rCmd := exec.Command("apkbuilder", path+"/bin/"+projectName+".apk", "-v", "-u", "-z", path+"/bin/resources.ap_", "-f", path+"/bin/classes.dex", "-rf", path+"/src")
-    rResult, rErr := rCmd.Output()
-
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
-        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
-    }
-
-    if rErr == nil {
-        ch <- 1
+    if result, rErr := RunCommand(args); result {
+        fmt.Println("Built unsigner apk success.")
+        return true
     } else {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
-        ch <- 0
+        if strings.Contains(rErr.Error(), "executable file not found in") {
+            fmt.Println("apkbuilder not found")
+
+            createApkBuilderCmd := "cd " + sdkPath + "/tools && cat android | sed -e 's/com.android.sdkmanager.Main/com.android.sdklib.build.ApkBuilderMain/g' > apkbuilder"
+            if !RunShell(createApkBuilderCmd) {
+                fmt.Println("apkbuilder command create faild")
+                return false
+            } else {
+                chmodCmd := "cd " + sdkPath + "/tools && chmod a+x apkbuilder"
+                if !RunShell(chmodCmd) {
+                    fmt.Println("apkbuilder command chmod faild")
+                    return false
+                } else {
+                    RunUnsignAPK(path, projectName, sdkPath)
+                }
+            }
+        } else {
+            fmt.Println("found apkbuilder, but built unsigner apk failed.")
+            return false
+        }
     }
+    return false
 }
 
 /**
@@ -175,7 +283,7 @@ The SDK tools create the debug keystore/key with predetermined names/passwords:
 Keystore name: "debug.keystore" Keystore password: "android" Key alias: "androiddebugkey" Key password: "android" CN: "CN=Android Debug,O=Android,C=US"
 */
 // sign apk
-func RunSignAPK(apk *Apk, ch chan int) {
+func RunSignAPK(apk *Apk, signType string, ch chan<- int) {
     //    command := "jarsigner -keystore " + "/.android/debug.keystore" +
     //        " -storepass " + "android" +
     //        " -keypass " + "android" +
@@ -183,25 +291,131 @@ func RunSignAPK(apk *Apk, ch chan int) {
     //        " " +
     //        path + "/bin/HelloAndroid3.apk" +
     //        " " + "androiddebugkey"
+    //jarsigner -verbose -keystore liufeng.keystore -signedjar notepad_signed.apk notepad.apk liufeng.keystore
 
-    rCmd := exec.Command("jarsigner", "-keystore", apk.Keystore, "-storepass", apk.Kstorepass, "-keypass", apk.Keypass, "-signedjar", apk.Path+"/bin/"+apk.ProjectName+"-release.apk", apk.Path+"/bin/"+apk.ProjectName+".apk", apk.Keyalias)
-    rResult, rErr := rCmd.Output()
+    if signType == "DEBUG" || signType == "debug" {
 
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----Command: %s\n", rCmd.Args)
-        fmt.Fprintf(os.Stdout, "----run Result: %s \n", rResult)
+    } else if signType == "RELEASE" || signType == "release" {
+
     }
 
-    if rErr == nil {
+    args := []string{}
+    args = append(args, "jarsigner")
+    args = append(args, "-verbose")
+    args = append(args, "-sigalg")
+    args = append(args, "MD5withRSA")
+    args = append(args, "-digestalg")
+    args = append(args, "SHA1")
+    args = append(args, "-keystore")
+    args = append(args, apk.Keystore)
+    args = append(args, "-storepass")
+    args = append(args, apk.Kstorepass)
+    args = append(args, "-keypass")
+    args = append(args, apk.Keypass)
+    args = append(args, "-signedjar")
+    args = append(args, apk.Path+"/bin/"+apk.ProjectName+"-release.apk")
+    args = append(args, apk.Path+"/bin/"+apk.ProjectName+"-unsigner.apk")
+    args = append(args, apk.Keyalias)
+
+    if result, _ := RunCommand(args); result {
         ch <- 1
     } else {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s\n", rErr)
         ch <- 0
+    }
+}
+
+// sign debug apk
+func RunDebugSignAPK(apk *Apk) bool {
+    //Keystore名字：“debug.keysotre”
+    //Keystore密码：“android”
+    //Key别名：“androiddebugkey”
+    //Key密码：“android”
+    //CN：“CN=Android Debug,O=Android,C=US”
+
+    keystoreFile := "~/.android/debug.keystore"
+    keystorePwd := "android"
+    keyPwd := "android"
+    keyAlias := "androiddebugkey"
+
+    debugSignApkPath := apk.Path+"/bin/"+apk.ProjectName+"-debugsign.apk"
+
+    command := "jarsigner -verbose -sigalg MD5withRSA -digestalg SHA1 -keystore "+keystoreFile+" -storepass "+keystorePwd+" -keypass "+keyPwd+" -signedjar "+debugSignApkPath +" "+apk.Path+"/bin/"+apk.ProjectName+"-unsigner.apk" +" "+keyAlias
+
+    if RunShell(command) {
+        fmt.Println("Built sign debug apk success.")
+        return RunAlignAPK(debugSignApkPath, apk.Path+"/bin/"+apk.ProjectName+"-debugsign-aligned.apk")
+    } else {
+        fmt.Println("Built sign debug apk failed.")
+        return false
     }
 }
 
 //对签名后的.apk文件进行对齐处理（不进行对齐处理是不能发布到Google Market的）
 // use zipalign tool to align apk
-func RunAlignAPK(path string) {
+func RunAlignAPK(signApkFullPath, outName string) bool {
     // TODO zipalign工具
+    // zipalign -v 4 notepad_signed.apk notepad_signed_aligned.apk
+    args := []string{}
+    args = append(args, "zipalign")
+    args = append(args, "-v")
+    args = append(args, "4")
+    args = append(args, signApkFullPath)
+    args = append(args, outName)
+
+    if result, _ := RunCommand(args); result {
+        fmt.Println("align apk success.")
+        return true
+    } else {
+        fmt.Println("align apk failed.")
+        return false
+    }
+}
+
+func RunBuild(apk *Apk, sdkpath string, ch chan int) {
+    // clear bin & gen
+    genPath := apk.Path + "/gen"
+    if CheckPath(genPath) {
+        os.RemoveAll(genPath)
+    }
+    binPath := apk.Path + "/bin"
+    if CheckPath(binPath) {
+        os.RemoveAll(binPath)
+    }
+
+    if !RunRClass(apk, sdkpath) {
+        ch <- 0
+        return
+    }
+
+    if !RunAIDL(apk, sdkpath) {
+        ch <- 0
+        return
+    }
+
+    if !RunClass(apk, sdkpath) {
+        ch <- 0
+        return
+    }
+
+    if !RunDEX(apk.Path) {
+        ch <- 0
+        return
+    }
+
+    if !RunResource(apk.Path, apk.Api, sdkpath) {
+        ch <- 0
+        return
+    }
+
+    if !RunUnsignAPK(apk.Path, apk.ProjectName, sdkpath) {
+        ch <- 0
+        return
+    }
+
+    if !RunDebugSignAPK(apk) {
+        ch <- 0
+        return
+    }
+
+    ch <- 1
 }

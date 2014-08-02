@@ -36,6 +36,7 @@ var projectPathFlag *string = flag.String("ppath", "", "Update project path.")
 
 var paths = new(linkedlist.LinkedList)
 var runtineLib = make(map[string]*originbuild.Apk)
+var startTime time.Time
 
 func Help() {
     fmt.Println("------------------------")
@@ -91,21 +92,6 @@ func checkEnv() bool {
     return (javaResult && androidResult && antResult)
 }
 
-func RunShell(command string) bool {
-    cmd := exec.Command("/bin/sh", "-c", command)
-    result, _err := cmd.Output()
-    if _err != nil {
-        fmt.Fprintf(os.Stderr, "The command failed to perform: %s (Command: %s) \n", _err, command)
-        return false
-    }
-
-    if DEBUG {
-        fmt.Fprintf(os.Stdout, "----run Result: %s (OK)\n", result)
-    }
-
-    return true
-}
-
 // update and build project
 func Run(path string) bool {
     // update project.
@@ -125,7 +111,7 @@ func Run(path string) bool {
     // run clean project
     cleanCmd := "cd " + path + " && ant clean"
     fmt.Println("----cleanCmd :", cleanCmd)
-    if !RunShell(cleanCmd) {
+    if !originbuild.RunShell(cleanCmd) {
         return false
     }
 
@@ -138,15 +124,7 @@ func Run(path string) bool {
     }
     fmt.Println("----publishCmd :", publishCmd)
 
-    return RunShell(publishCmd)
-}
-
-func rungoBuild(path string, ch chan int) {
-    if Run(path) {
-        ch <- 1
-    } else {
-        ch <- 0
-    }
+    return originbuild.RunShell(publishCmd)
 }
 
 // parse project.properties file in project
@@ -260,7 +238,7 @@ func ParseCfg(path string) {
 func gitUpdate() bool {
     updateCmd := "cd " + *projectPathFlag + " && git pull"
     fmt.Println("----updateCmd :", updateCmd)
-    if RunShell(updateCmd) {
+    if originbuild.RunShell(updateCmd) {
         fmt.Println("Update code OK!")
         return true
     } else {
@@ -268,8 +246,6 @@ func gitUpdate() bool {
         return false
     }
 }
-
-var startTime time.Time
 
 func main() {
     showCopyright()
@@ -324,20 +300,7 @@ func main() {
             fmt.Println("----Android project path :", *buildPath)
         }
 
-        // delete end last '/' char
-        rs := []rune(*buildPath)
-        rl := len(rs)
-        lastIndex := strings.LastIndex(*buildPath, "/")
-
-        var path string
-        if rl-1 == lastIndex {
-            path = string(rs[:strings.LastIndex(*buildPath, "/")])
-            if DEBUG {
-                fmt.Printf("----((((path:%s))))----\n", path)
-            }
-        } else {
-            path = *buildPath
-        }
+        path := originbuild.DeleteEndChar(*buildPath, "/")
 
         // parse project.properties and to check depends.
         ParseCfg(path)
@@ -349,7 +312,7 @@ func main() {
         runtime.GOMAXPROCS(NCPU)
         ch := make(chan int, NCPU)
 
-        // built R.class
+        // built
         goCount := 0
         for _, value := range runtineLib {
             goCount++
@@ -363,7 +326,7 @@ func main() {
             fmt.Println("<<< runtime Kstorepass : " + value.Kstorepass)
             fmt.Println("<<< runtime Keypass : " + value.Keypass)
 
-            go originbuild.RunRClass(value, sdkpath, ch)
+            go originbuild.RunBuild(value, sdkpath, ch)
         }
 
         result := 0
@@ -373,9 +336,10 @@ func main() {
             result += temp
         }
         fmt.Println("flag count :", result, "(goruntime count)")
-        if result == goCount {
-
+        if result != goCount {
+            goto FAILED
         }
+        fmt.Println("Built success.")
 
         // list paths to show
         var counter int32 = 0
