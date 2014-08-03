@@ -26,6 +26,7 @@ type Apk struct {
     Path          string
     ProjectName   string
     Api           string
+    IsLibrary     bool
     IsRealLibrary bool
 
     Keystore   string
@@ -249,7 +250,7 @@ func RunUnsignAPK(path, projectName, sdkPath string) bool {
         fmt.Println("Built unsigner apk success.")
         return true
     } else {
-        if strings.Contains(rErr.Error(), "executable file not found in") {
+        if strings.Contains(rErr.Error(), "executable file not found in") || strings.Contains(rErr.Error(), "no such file or directory") {
             fmt.Println("apkbuilder not found")
 
             createApkBuilderCmd := "cd " + sdkPath + "/tools && cat android | sed -e 's/com.android.sdkmanager.Main/com.android.sdklib.build.ApkBuilderMain/g' > apkbuilder"
@@ -343,7 +344,8 @@ func RunDebugSignAPK(apk *Apk) bool {
 
     if RunShell(command) {
         fmt.Println("Built sign debug apk success.")
-        return RunAlignAPK(debugSignApkPath, apk.Path+"/bin/"+apk.ProjectName+"-debugsign-aligned.apk")
+        result := RunAlignAPK(debugSignApkPath, apk.Path+"/bin/"+apk.ProjectName+"-debugsign-aligned.apk")
+        return result
     } else {
         fmt.Println("Built sign debug apk failed.")
         return false
@@ -371,7 +373,7 @@ func RunAlignAPK(signApkFullPath, outName string) bool {
     }
 }
 
-func RunBuild(apk *Apk, sdkpath string, ch chan int) {
+func RunBuild(apk *Apk, sdkpath string) bool {
     // clear bin & gen
     genPath := apk.Path + "/gen"
     if CheckPath(genPath) {
@@ -383,39 +385,41 @@ func RunBuild(apk *Apk, sdkpath string, ch chan int) {
     }
 
     if !RunRClass(apk, sdkpath) {
-        ch <- 0
-        return
+        return false
     }
 
     if !RunAIDL(apk, sdkpath) {
-        ch <- 0
-        return
+        return false
     }
 
     if !RunClass(apk, sdkpath) {
-        ch <- 0
-        return
+        return false
     }
 
     if !RunDEX(apk.Path) {
-        ch <- 0
-        return
+        return false
     }
 
     if !RunResource(apk.Path, apk.Api, sdkpath) {
-        ch <- 0
-        return
+        return false
     }
 
     if !RunUnsignAPK(apk.Path, apk.ProjectName, sdkpath) {
-        ch <- 0
-        return
+        return false
     }
 
     if !RunDebugSignAPK(apk) {
-        ch <- 0
+        return false
+    }
+
+    return true
+}
+
+func RuntineBuild(apk *Apk, sdkpath string, ch chan int) {
+    if RunBuild(apk, sdkpath) {
+        ch <- 1
         return
     }
 
-    ch <- 1
+    ch <- 0
 }
