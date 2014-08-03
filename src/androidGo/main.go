@@ -45,6 +45,7 @@ func Help() {
     fmt.Println("       -c : Check your environment.")
     fmt.Println("       -v : Show command version number.")
     fmt.Println("       -p : Input android project path.")
+    fmt.Println("       -sdk : Input android SDK path.")
     fmt.Println("       -publish : Choice release(default) or debug mode to publish.")
     fmt.Println("       -tool : Update project use Git(default) or other code store manager tools.")
     fmt.Println("       -ppath : Update project path.")
